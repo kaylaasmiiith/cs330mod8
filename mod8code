@@ -1,0 +1,259 @@
+#include <GLFW/glfw3.h>
+#include "linmath.h"
+#include <stdlib.h>
+#include <stdio.h>
+#include <iostream>
+#include <vector>
+#include <windows.h>
+#include <time.h>
+
+using namespace std;
+
+const float DEG2RAD = 3.14159 / 180;
+
+void processInput(GLFWwindow* window);
+
+enum BRICKTYPE { REFLECTIVE, DESTRUCTABLE };
+enum ONOFF { ON, OFF };
+
+class Brick {
+public:
+    float red, green, blue;
+    float x, y, width;
+    BRICKTYPE brick_type;
+    ONOFF onoff;
+
+    Brick(BRICKTYPE bt, float xx, float yy, float ww, float rr, float gg, float bb) {
+        brick_type = bt; x = xx; y = yy; width = ww; red = rr; green = gg; blue = bb;
+        onoff = ON;
+    }
+
+    void drawBrick() {
+        if (onoff == ON) {
+            double halfside = width / 2;
+
+            glColor3d(red, green, blue);
+            glBegin(GL_POLYGON);
+
+            glVertex2d(x + halfside, y + halfside);
+            glVertex2d(x + halfside, y - halfside);
+            glVertex2d(x - halfside, y - halfside);
+            glVertex2d(x - halfside, y + halfside);
+
+            glEnd();
+        }
+    }
+};
+
+class Circle {
+public:
+    float red, green, blue;
+    float radius;
+    float x, y;
+    float speed = 0.03;
+    int direction; // 1=up 2=right 3=down 4=left 5=up right 6=up left 7=down right 8=down left
+
+    Circle(double xx, double yy, double rr, int dir, float rad, float r, float g, float b) {
+        x = xx;
+        y = yy;
+        radius = rr;
+        red = r;
+        green = g;
+        blue = b;
+        radius = rad;
+        direction = dir;
+    }
+
+    void CheckCollision(Brick* brk) {
+        if (brk->brick_type == REFLECTIVE) {
+            if ((x > brk->x - brk->width && x <= brk->x + brk->width) && (y > brk->y - brk->width && y <= brk->y + brk->width)) {
+                direction = GetRandomDirection();
+                x = x + 0.03;
+                y = y + 0.04;
+            }
+        }
+        else if (brk->brick_type == DESTRUCTABLE) {
+            if ((x > brk->x - brk->width && x <= brk->x + brk->width) && (y > brk->y - brk->width && y <= brk->y + brk->width)) {
+                brk->red -= 0.1; // Gradually change color as a visual indicator
+                if (brk->red <= 0) {
+                    brk->onoff = OFF; // Brick disappears
+                }
+            }
+        }
+    }
+
+    void CheckCollisionWithWall() {
+        // Check and update direction based on wall collision
+        if (x - radius <= -1 || x + radius >= 1) {
+            direction = (direction == 2) ? 4 : 2; // Example: flip horizontal direction
+        }
+        if (y - radius <= -1 || y + radius >= 1) {
+            direction = (direction == 1) ? 3 : 1; // Example: flip vertical direction
+        }
+    }
+
+    void CheckCollisionWithCircle(Circle* otherCircle) {
+        float dist = sqrt(pow(otherCircle->x - x, 2) + pow(otherCircle->y - y, 2));
+        if (dist < (radius + otherCircle->radius)) {
+            // Example: Merge into a larger circle
+            radius += 0.01;
+            otherCircle->radius = 0; // Make the other circle disappear
+        }
+    }
+
+    int GetRandomDirection() {
+        return (rand() % 8) + 1;
+    }
+
+    void MoveOneStep() {
+        if (direction == 1 || direction == 5 || direction == 6) {  // up
+            if (y > -1 + radius) {
+                y -= speed;
+            } else {
+                direction = GetRandomDirection();
+            }
+        }
+
+        if (direction == 2 || direction == 5 || direction == 7) {  // right
+            if (x < 1 - radius) {
+                x += speed;
+            } else {
+                direction = GetRandomDirection();
+            }
+        }
+
+        if (direction == 3 || direction == 7 || direction == 8) {  // down
+            if (y < 1 - radius) {
+                y += speed;
+            } else {
+                direction = GetRandomDirection();
+            }
+        }
+
+        if (direction == 4 || direction == 6 || direction == 8) {  // left
+            if (x > -1 + radius) {
+                x -= speed;
+            } else {
+                direction = GetRandomDirection();
+            }
+        }
+    }
+
+    void DrawCircle() {
+        glColor3f(red, green, blue);
+        glBegin(GL_POLYGON);
+        for (int i = 0; i < 360; i++) {
+            float degInRad = i * DEG2RAD;
+            glVertex2f((cos(degInRad) * radius) + x, (sin(degInRad) * radius) + y);
+        }
+        glEnd();
+    }
+};
+
+class Paddle : public Brick {
+public:
+    Paddle(float xx, float yy, float ww, float rr, float gg, float bb)
+        : Brick(REFLECTIVE, xx, yy, ww, rr, gg, bb) {}
+
+    void MovePaddle(float direction) {
+        x += direction;
+    }
+};
+
+vector<Circle> world;
+
+int main(void) {
+    srand(time(NULL));
+
+    if (!glfwInit()) {
+        exit(EXIT_FAILURE);
+    }
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 2);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 0);
+    GLFWwindow* window = glfwCreateWindow(480, 480, "8-2 Assignment", NULL, NULL);
+    if (!window) {
+        glfwTerminate();
+        exit(EXIT_FAILURE);
+    }
+    glfwMakeContextCurrent(window);
+    glfwSwapInterval(1);
+
+    // Create bricks
+    Brick brick(REFLECTIVE, 0.5, -0.33, 0.2, 1, 1, 0);
+    Brick brick2(DESTRUCTABLE, -0.5, 0.33, 0.2, 0, 1, 0);
+    Brick brick3(DESTRUCTABLE, -0.5, -0.33, 0.2, 0, 1, 1);
+    Brick brick4(REFLECTIVE, 0, 0, 0.2, 1, 0.5, 0.5);
+    Brick brick5(REFLECTIVE, 0.3, 0.3, 0.2, 0.5, 0.8, 0);
+    Brick brick6(DESTRUCTABLE, -0.3, -0.3, 0.2, 0.9, 0.3, 0.2);
+
+    // Create paddle
+    Paddle paddle(0, -0.8, 0.3, 0.5, 0.5, 0.5);
+
+    while (!glfwWindowShouldClose(window)) {
+        // Setup View
+        float ratio;
+        int width, height;
+        glfwGetFramebufferSize(window, &width, &height);
+        ratio = width / (float)height;
+        glViewport(0, 0, width, height);
+        glClear(GL_COLOR_BUFFER_BIT);
+
+        processInput(window);
+
+        // Movement and Collision
+        for (int i = 0; i < world.size(); i++) {
+            world[i].CheckCollision(&brick);
+            world[i].CheckCollision(&brick2);
+            world[i].CheckCollision(&brick3);
+            world[i].CheckCollision(&brick4);
+            world[i].CheckCollision(&brick5);
+            world[i].CheckCollision(&brick6);
+            world[i].CheckCollisionWithWall();
+
+            // Check collision with other circles
+            for (int j = i + 1; j < world.size(); j++) {
+                world[i].CheckCollisionWithCircle(&world[j]);
+            }
+
+            world[i].MoveOneStep();
+            world[i].DrawCircle();
+        }
+
+        // Draw Bricks and Paddle
+        brick.drawBrick();
+        brick2.drawBrick();
+        brick3.drawBrick();
+        brick4.drawBrick();
+        brick5.drawBrick();
+        brick6.drawBrick();
+        paddle.drawBrick();
+
+        glfwSwapBuffers(window);
+        glfwPollEvents();
+    }
+
+    glfwDestroyWindow(window);
+    glfwTerminate();
+    exit(EXIT_SUCCESS);
+}
+
+void processInput(GLFWwindow* window) {
+    if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
+        glfwSetWindowShouldClose(window, true);
+
+    if (glfwGetKey(window, GLFW_KEY_LEFT) == GLFW_PRESS) {
+        // Move paddle left
+        // Ensure paddle does not go out of bounds
+        if (paddle.x - paddle.width / 2 > -1) {
+            paddle.MovePaddle(-0.01);
+        }
+    }
+
+    if (glfwGetKey(window, GLFW_KEY_RIGHT) == GLFW_PRESS) {
+        // Move paddle right
+        // Ensure paddle does not go out of bounds
+        if (paddle.x + paddle.width / 2 < 1) {
+            paddle.MovePaddle(0.01);
+        }
+    }
+}
